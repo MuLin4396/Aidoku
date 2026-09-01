@@ -15,19 +15,55 @@ jobs:
         run: |
           xcrun simctl list > /dev/null # fixes next command sometimes failing
           xcodebuild -downloadPlatform iOS
-      - name: Get commit SHA
-        id: commitinfo
-        run: echo "::set-output name=sha_short::$(git rev-parse --short HEAD)"
-      - name: Build
-        run: xcodebuild -scheme "Aidoku" -configuration Release archive -archivePath build/Aidoku.xcarchive -skipPackagePluginValidation CODE_SIGN_IDENTITY= CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
-      - name: Package ipa
+
+      - name: Get build metadata
+        id: meta
         run: |
-          mkdir Payload
-          cp -r build/Aidoku.xcarchive/Products/Applications/Aidoku.app Payload
-          zip -r Aidoku-iOS_nightly-${{ steps.commitinfo.outputs.sha_short }}.ipa Payload
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
+
+      - name: Build for iOS Simulator (Device Hub)
+        run: |
+          xcodebuild -scheme "Aidoku" \
+            -configuration Release \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            archive -archivePath build/Aidoku-Simulator.xcarchive \
+            -skipPackagePluginValidation \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Build for iOS Device
+        run: |
+          xcodebuild -scheme "Aidoku" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            archive -archivePath build/Aidoku-Device.xcarchive \
+            -skipPackagePluginValidation \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Package IPAs
+        run: |
+          SIM_NAME="Aidoku_nightly_simulator_${{ steps.meta.outputs.date }}_${{ steps.meta.outputs.sha_short }}.ipa"
+          DEV_NAME="Aidoku_nightly_device_${{ steps.meta.outputs.date }}_${{ steps.meta.outputs.sha_short }}.ipa"
+
+          mkdir -p Payload_Sim/Payload
+          cp -r build/Aidoku-Simulator.xcarchive/Products/Applications/Aidoku.app Payload_Sim/Payload/
+          (cd Payload_Sim && zip -r ../$SIM_NAME Payload)
+
+          mkdir -p Payload_Dev/Payload
+          cp -r build/Aidoku-Device.xcarchive/Products/Applications/Aidoku.app Payload_Dev/Payload/
+          (cd Payload_Dev && zip -r ../$DEV_NAME Payload)
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Aidoku-iOS_nightly-${{ steps.commitinfo.outputs.sha_short }}.ipa
-          path: Aidoku-iOS_nightly-${{ steps.commitinfo.outputs.sha_short }}.ipa
+          name: Aidoku_nightly_${{ steps.meta.outputs.date }}_${{ steps.meta.outputs.sha_short }}
+          path: |
+            Aidoku_nightly_simulator_${{ steps.meta.outputs.date }}_${{ steps.meta.outputs.sha_short }}.ipa
+            Aidoku_nightly_device_${{ steps.meta.outputs.date }}_${{ steps.meta.outputs.sha_short }}.ipa
           if-no-files-found: error
