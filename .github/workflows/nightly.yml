@@ -55,7 +55,8 @@ jobs:
             -skipPackagePluginValidation \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO
+            CODE_SIGNING_ALLOWED=NO \
+            SUPPORTS_MACCATALYST=YES
 
       - name: Package IPAs
         run: |
@@ -69,6 +70,7 @@ jobs:
           mkdir -p Payload_Dev/Payload
           cp -r build/Aidoku-Device.xcarchive/Products/Applications/Aidoku.app Payload_Dev/Payload/
           (cd Payload_Dev && zip -r ../$DEV_NAME Payload)
+
       - name: Package macOS DMG
         run: |
           DMG_NAME="Aidoku_nightly_macos_${{ steps.meta.outputs.date }}_${{ steps.meta.outputs.sha_short }}.dmg"
