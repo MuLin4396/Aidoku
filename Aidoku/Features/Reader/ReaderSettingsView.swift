@@ -25,6 +25,7 @@ struct ReaderSettingsView: View {
     @StateObject private var dictionaryLookupEnabled = UserDefaultsBool(key: AppSettings.dictionary.enable.key)
     @StateObject private var dictionaryTextOverlayModeEnabled = UserDefaultsBool(key: AppSettings.dictionary.textOverlayMode.key)
     @StateObject private var restrictOCRLanguages = UserDefaultsBool(key: AppSettings.dictionary.restrictOCRLanguages.key)
+    @StateObject private var autoScroll = UserDefaultsBool(key: "Reader.autoScroll")
 
     // All available font families on the system
     private static let availableFonts: [String] = {
@@ -513,14 +514,27 @@ extension ReaderSettingsView {
                     value: .toggle(.init())
                 )
             )
-            SettingView(
-                setting: .init(
-                    key: "Reader.autoScrollSpeed",
-                    title: NSLocalizedString("AUTO_SCROLL_SPEED"),
-                    requires: "Reader.autoScroll",
-                    value: .stepper(.init(minimumValue: 1, maximumValue: 10, stepValue: 1))
+            if autoScroll.value {
+                SettingView(
+                    setting: .init(
+                        key: "Reader.autoScrollSpeed",
+                        title: NSLocalizedString("AUTO_SCROLL_SPEED"),
+                        requires: "Reader.autoScroll",
+                        value: .stepper(.init(minimumValue: 1, maximumValue: 10, stepValue: 1))
+                    )
                 )
-            )
+                SettingView(
+                    setting: .init(
+                        key: AppSettings.reader.autoScrollPosition.key,
+                        title: NSLocalizedString("AUTO_SCROLL_POSITION"),
+                        requires: "Reader.autoScroll",
+                        value: .select(.init(
+                            values: ReaderSettings.AutoScrollPosition.allCases.map { $0.rawValue },
+                            titles: ReaderSettings.AutoScrollPosition.allCases.map { $0.title }
+                        ))
+                    )
+                )
+            }
             SettingView(
                 setting: .init(
                     key: "Reader.pillarbox",
@@ -606,6 +620,32 @@ extension ReaderSettingsView {
                     title: NSLocalizedString("TEXT_HORIZONTAL_PADDING"),
                     notification: .init("Reader.textHorizontalPadding"),
                     value: .stepper(.init(minimumValue: 8, maximumValue: 48, stepValue: 4))
+                )
+            )
+            SettingView(
+                setting: .init(
+                    key: ReaderTextTheme.userDefaultsKey,
+                    title: NSLocalizedString("TEXT_THEME"),
+                    notification: .init(ReaderTextTheme.changeNotification),
+                    value: .select(.init(
+                        values: ReaderTextTheme.allCases.map(\.rawValue),
+                        titles: ReaderTextTheme.allCases.map(\.title)
+                    ))
+                )
+            )
+            SettingView(
+                setting: .init(
+                    key: ReaderTextTheme.appearanceUserDefaultsKey,
+                    title: NSLocalizedString("APPEARANCE"),
+                    notification: .init(ReaderTextTheme.changeNotification),
+                    value: .select(.init(
+                        values: ["system", "light", "dark"],
+                        titles: [
+                            NSLocalizedString("READER_BG_COLOR_SYSTEM"),
+                            NSLocalizedString("APPEARANCE_LIGHT"),
+                            NSLocalizedString("APPEARANCE_DARK")
+                        ]
+                    ))
                 )
             )
         }

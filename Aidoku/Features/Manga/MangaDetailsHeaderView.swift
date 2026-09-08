@@ -23,6 +23,7 @@ struct MangaDetailsHeaderView: View {
     @Binding var initialDataLoaded: Bool
 
     @Binding var bookmarked: Bool
+    @Binding var hasCategories: Bool
     @Binding var coverPressed: Bool
     @Binding var chapterSortOption: ChapterSortOption
     @Binding var chapterSortAscending: Bool
@@ -36,6 +37,8 @@ struct MangaDetailsHeaderView: View {
     @Binding var chapterTitleDisplayMode: ChapterTitleDisplayMode
 
     var hasOtherDownloads: Bool
+    var transitionNamespace: Namespace.ID
+    var onTitlePressed: (() -> Void)?
     var onTrackerButtonPressed: (() -> Void)?
     var onReadButtonPressed: (() -> Void)?
 
@@ -62,6 +65,7 @@ struct MangaDetailsHeaderView: View {
         allChaptersRead: Binding<Bool>,
         initialDataLoaded: Binding<Bool>,
         bookmarked: Binding<Bool>,
+        hasCategories: Binding<Bool>,
         coverPressed: Binding<Bool>,
         chapterSortOption: Binding<ChapterSortOption>,
         chapterSortAscending: Binding<Bool>,
@@ -71,6 +75,8 @@ struct MangaDetailsHeaderView: View {
         descriptionExpanded: Binding<Bool>,
         chapterTitleDisplayMode: Binding<ChapterTitleDisplayMode>,
         hasOtherDownloads: Bool,
+        transitionNamespace: Namespace.ID,
+        onTitlePressed: (() -> Void)? = nil,
         onTrackerButtonPressed: (() -> Void)? = nil,
         onReadButtonPressed: (() -> Void)? = nil
     ) {
@@ -83,6 +89,7 @@ struct MangaDetailsHeaderView: View {
         self._allChaptersRead = allChaptersRead
         self._initialDataLoaded = initialDataLoaded
         self._bookmarked = bookmarked
+        self._hasCategories = hasCategories
         self._coverPressed = coverPressed
         self._chapterSortOption = chapterSortOption
         self._chapterSortAscending = chapterSortAscending
@@ -92,6 +99,8 @@ struct MangaDetailsHeaderView: View {
         self._descriptionExpanded = descriptionExpanded
         self._chapterTitleDisplayMode = chapterTitleDisplayMode
         self.hasOtherDownloads = hasOtherDownloads
+        self.transitionNamespace = transitionNamespace
+        self.onTitlePressed = onTitlePressed
         self.onTrackerButtonPressed = onTrackerButtonPressed
         self.onReadButtonPressed = onReadButtonPressed
 
@@ -120,19 +129,26 @@ struct MangaDetailsHeaderView: View {
                     }
                     .buttonStyle(DarkOverlayButtonStyle())
                     .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                    .matchedTransitionSourcePlease(id: manga.identifier, in: transitionNamespace)
                 }
 
                 VStack(alignment: .leading, spacing: 0) {
                     Spacer(minLength: 0)
 
-                    Text(manga.title)
-                        .lineLimit(4)
-                        .font(.system(.title2).weight(.semibold))
-                        .textSelection(.enabled)
-                        .foregroundStyle(.primary)
-                        .minimumScaleFactor(0.75)
-                        .contentTransitionDisabledPlease()
-                        .padding(.bottom, 4)
+                    Button {
+                        onTitlePressed?()
+                    } label: {
+                        Text(manga.title)
+                            .lineLimit(4)
+                            .font(.system(.title2).weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .minimumScaleFactor(0.75)
+                            .contentTransitionDisabledPlease()
+                            .multilineTextAlignment(.leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                    .padding(.bottom, 4)
 
                     if let authors = manga.authors, !authors.isEmpty {
                         let label = Text(authors.joined(separator: ", "))
@@ -308,10 +324,7 @@ struct MangaDetailsHeaderView: View {
                 // on long hold, show category select
                 LongPressGesture()
                     .onEnded { _ in
-                        if
-                            bookmarked,
-                            !CoreDataManager.shared.getCategoryTitles(sorted: false).isEmpty
-                        {
+                        if bookmarked && hasCategories {
                             longHeldBookmark = true
                             path.present(
                                 UINavigationController(
@@ -417,7 +430,7 @@ struct MangaDetailsHeaderView: View {
             await MangaManager.shared.removeFromLibrary(mangaId: mangaId)
             bookmarked = false
         } else {
-            if MangaManager.shouldAskForCategories() { // open category select view
+            if await MangaManager.shouldAskForCategories() { // open category select view
                 let viewController = UINavigationController(rootViewController: CategorySelectViewController(manga: manga))
                 path.present(viewController)
             } else { // add to library
@@ -545,6 +558,7 @@ private struct MangaActionButtonStyle: ButtonStyle {
     @Previewable @State var langFilter: String?
     @Previewable @State var scanlatorFilter: [String] = []
     @Previewable @State var chapterTitleDisplayMode = ChapterTitleDisplayMode.default
+    @Previewable @Namespace var transitionNamespace
 
     MangaDetailsHeaderView(
         source: Binding.constant(AidokuRunner.Source.demo()),
@@ -562,6 +576,7 @@ private struct MangaActionButtonStyle: ButtonStyle {
         allChaptersRead: Binding.constant(false),
         initialDataLoaded: Binding.constant(true),
         bookmarked: $bookmarked,
+        hasCategories: Binding.constant(false),
         coverPressed: Binding.constant(false),
         chapterSortOption: $chapterSortOption,
         chapterSortAscending: $chapterSortAscending,
@@ -571,5 +586,6 @@ private struct MangaActionButtonStyle: ButtonStyle {
         descriptionExpanded: Binding.constant(false),
         chapterTitleDisplayMode: $chapterTitleDisplayMode,
         hasOtherDownloads: false,
+        transitionNamespace: transitionNamespace,
     )
 }

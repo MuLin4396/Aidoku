@@ -314,9 +314,20 @@ extension SourceManager {
         return infos
     }
 
-    func getLoadedSources() async -> [AidokuRunner.Source] {
+    func getLoadedSources(sorted: Bool = false) async -> [AidokuRunner.Source] {
         await waitForSourcesLoad()
-        return Array(sourcesByKey.values)
+        if sorted {
+            return sourcesByKey.values
+                .sorted { lhs, rhs in
+                    let languageOrder = SourceLanguage.compare(lhs.languages, rhs.languages)
+                    if languageOrder != .orderedSame {
+                        return languageOrder == .orderedAscending
+                    }
+                    return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+                }
+        } else {
+            return Array(sourcesByKey.values)
+        }
     }
 
     func getSourceLists() async -> [SourceList] {
@@ -561,6 +572,7 @@ extension SourceManager {
     }
 
     enum CustomSourceKind {
+        case demo
         case local
         case komga(ServerConfig)
         case kavita(ServerConfig)
@@ -580,6 +592,8 @@ extension SourceManager {
         switch kind {
             case .local:
                 config = CustomSourceConfig.local
+            case .demo:
+                config = CustomSourceConfig.demo
             case .komga(let serverConfig), .kavita(let serverConfig), .suwayomi(let serverConfig):
                 let name = serverConfig.name
                 let server = serverConfig.server
@@ -590,7 +604,7 @@ extension SourceManager {
                     case .komga: KomgaSourceRunner.sourceKeyPrefix
                     case .kavita: KavitaSourceRunner.sourceKeyPrefix
                     case .suwayomi: SuwayomiSourceRunner.sourceKeyPrefix
-                    case .local: unreachable()
+                    case .local, .demo: unreachable()
                 }
                 let nameEncoded = name.lowercased().replacingOccurrences(of: " ", with: "-")
                 var key = "\(keyPrefix).\(nameEncoded)"
@@ -607,7 +621,7 @@ extension SourceManager {
                     case .komga: CustomSourceConfig.komga(configValues)
                     case .kavita: CustomSourceConfig.kavita(configValues)
                     case .suwayomi: CustomSourceConfig.suwayomi(configValues)
-                    case .local: unreachable()
+                    case .local, .demo: unreachable()
                 }
 
                 // register details

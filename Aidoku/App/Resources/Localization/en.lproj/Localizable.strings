@@ -584,6 +584,10 @@
 "TEXT_FONT_SIZE" = "Font Size";
 "TEXT_LINE_SPACING" = "Line Spacing";
 "TEXT_HORIZONTAL_PADDING" = "Horizontal Padding";
+"TEXT_THEME" = "Theme";
+"TEXT_THEME_SEPIA" = "Sepia";
+"TEXT_THEME_PAPER" = "Paper";
+"TEXT_THEME_GRAY" = "Gray";
 
 // Dictionary
 "DICTIONARY_LOOKUP" = "Dictionary Lookup";
@@ -839,6 +843,9 @@
 "PILLARBOX_ORIENTATION_INFO" = "Pillarbox Orientation determines which orientations pillarboxing should be enabled for.";
 "AUTO_SCROLL" = "Auto Scroll";
 "AUTO_SCROLL_SPEED" = "Auto Scroll Speed";
+"AUTO_SCROLL_POSITION" = "Auto Scroll Position";
+"POSITION_LEFT" = "Left";
+"POSITION_RIGHT" = "Right";
 "BOTH" = "Both";
 "%@_TRACKER_LOGIN_NEEDED" = "%@ Login Needed";
 "%@_TRACKER_LOGIN_NEEDED_TEXT" = "Your %@ token has expired, so the associated tracker will stop working until you re-login in settings.";

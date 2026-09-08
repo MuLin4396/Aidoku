@@ -584,6 +584,15 @@ extension Settings {
                         value: .stepper(.init(minimumValue: 1, maximumValue: 10, stepValue: 1))
                     ),
                     .init(
+                        key: AppSettings.reader.autoScrollPosition.key,
+                        title: NSLocalizedString("AUTO_SCROLL_POSITION"),
+                        requires: "Reader.autoScroll",
+                        value: .select(.init(
+                            values: ReaderSettings.AutoScrollPosition.allCases.map { $0.rawValue },
+                            titles: ReaderSettings.AutoScrollPosition.allCases.map { $0.title }
+                        ))
+                    ),
+                    .init(
                         key: "Reader.pillarbox",
                         title: NSLocalizedString("PILLARBOX"),
                         value: .toggle(.init())
@@ -650,6 +659,28 @@ extension Settings {
                         title: NSLocalizedString("TEXT_HORIZONTAL_PADDING"),
                         notification: .init("Reader.textHorizontalPadding"),
                         value: .stepper(.init(minimumValue: 8, maximumValue: 48, stepValue: 4))
+                    ),
+                    .init(
+                        key: ReaderTextTheme.userDefaultsKey,
+                        title: NSLocalizedString("TEXT_THEME"),
+                        notification: .init(ReaderTextTheme.changeNotification),
+                        value: .select(.init(
+                            values: ReaderTextTheme.allCases.map(\.rawValue),
+                            titles: ReaderTextTheme.allCases.map(\.title)
+                        ))
+                    ),
+                    .init(
+                        key: ReaderTextTheme.appearanceUserDefaultsKey,
+                        title: NSLocalizedString("APPEARANCE"),
+                        notification: .init(ReaderTextTheme.changeNotification),
+                        value: .select(.init(
+                            values: ["system", "light", "dark"],
+                            titles: [
+                                NSLocalizedString("READER_BG_COLOR_SYSTEM"),
+                                NSLocalizedString("APPEARANCE_LIGHT"),
+                                NSLocalizedString("APPEARANCE_DARK")
+                            ]
+                        ))
                     )
                 ]
             ))

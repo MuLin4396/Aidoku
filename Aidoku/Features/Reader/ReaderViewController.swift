@@ -93,10 +93,28 @@ class ReaderViewController: BaseObservingViewController {
 
         let button = UIButton(configuration: configuration)
         button.addTarget(self, action: #selector(toggleAutoScroll), for: .touchUpInside)
+        button.addTarget(self, action: #selector(autoScrollButtonTouchDown), for: .touchDown)
+        button.addTarget(
+            self,
+            action: #selector(autoScrollButtonTouchEnded),
+            for: [.touchUpInside, .touchUpOutside, .touchCancel]
+        )
         button.translatesAutoresizingMaskIntoConstraints = false
         button.isHidden = true
         return button
     }()
+    private var isInteractingWithAutoScrollButton = false
+    private lazy var autoScrollButtonLeadingConstraint =
+        autoScrollButton.leadingAnchor.constraint(
+            equalTo: view.safeAreaLayoutGuide.leadingAnchor,
+            constant: 16
+        )
+    private lazy var autoScrollButtonTrailingConstraint =
+        autoScrollButton.trailingAnchor.constraint(
+            equalTo: view.safeAreaLayoutGuide.trailingAnchor,
+            constant: -16
+        )
+
     private lazy var descriptionButtonController: UIHostingController<ReaderPageDescriptionButtonView> = {
         let buttonView = ReaderPageDescriptionButtonView(source: source, pages: [])
         let hostingController = UIHostingController(rootView: buttonView)
@@ -287,7 +305,6 @@ class ReaderViewController: BaseObservingViewController {
 
             descriptionButtonController.view.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
 
-            autoScrollButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
             autoScrollButton.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
         ])
 
@@ -355,6 +372,9 @@ class ReaderViewController: BaseObservingViewController {
                 }
             }
         }
+        addObserver(forName: ReaderTextTheme.changeNotification) { [weak self] _ in
+            self?.updateTextThemeOverride()
+        }
         addObserver(forName: UIScene.willDeactivateNotification) { [weak self] _ in
             guard let self else { return }
             Task {
@@ -382,6 +402,11 @@ class ReaderViewController: BaseObservingViewController {
         }
         addObserver(forName: "Reader.autoScroll") { [weak self] _ in
             self?.updateAutoScrollButton()
+        }
+        addObserver(forName: AppSettings.reader.autoScrollPosition.key) { [weak self] _ in
+            guard let self else { return }
+            let visible = self.reader is ReaderWebtoonViewController && UserDefaults.standard.bool(forKey: "Reader.autoScroll")
+            self.updateAutoScrollButtonPosition(visible: visible, animated: true)
         }
     }
 
@@ -577,6 +602,8 @@ extension ReaderViewController {
             }
 
         navigationItem.setTitle(upper: volume, lower: title)
+        // re-apply theme title colors, since setTitle recreates the title view
+        updateTextThemeOverride()
     }
 
     func showLoadFailAlert() {
@@ -610,6 +637,9 @@ extension ReaderViewController {
                 chapterLanguage: chapter.language ?? source?.languages.first
             )
         )
+        if currentReader == .text {
+            vc.overrideUserInterfaceStyle = ReaderTextTheme.getInterfaceStyleOverride()
+        }
         present(vc, animated: true)
     }
 
@@ -696,34 +726,6 @@ extension ReaderViewController {
         }
     }
 
-    @objc private func toggleAutoScroll() {
-        guard let webtoonReader = reader as? ReaderWebtoonViewController else { return }
-        webtoonReader.toggleAutoScroll()
-    }
-
-    private func updateAutoScrollButton() {
-        let webtoonReader = reader as? ReaderWebtoonViewController
-        let visible = webtoonReader != nil && UserDefaults.standard.bool(forKey: "Reader.autoScroll")
-
-        if !visible {
-            webtoonReader?.stopAutoScroll()
-        }
-
-        webtoonReader?.onAutoScrollStateChange = { [weak self] _ in
-            self?.updateAutoScrollButtonIcon()
-        }
-
-        autoScrollButton.isHidden = !visible
-        descriptionTrailingConstraint.isActive = !visible
-        descriptionTrailingToAutoScrollConstraint.isActive = visible
-        updateAutoScrollButtonIcon()
-    }
-
-    private func updateAutoScrollButtonIcon() {
-        let isAutoScrolling = (reader as? ReaderWebtoonViewController)?.isAutoScrolling == true
-        autoScrollButton.configuration?.image = UIImage(systemName: isAutoScrolling ? "pause.fill" : "play.fill")
-    }
-
     func setReader(_ type: Reader) {
         let pageController: ReaderReaderDelegate?
         switch type {
@@ -781,6 +783,152 @@ extension ReaderViewController {
         configureDictionaryOverlayTapHandler()
         updateAutoScrollButton()
         disableSwipeGestures()
+        updateTextThemeOverride()
+    }
+
+    func updateTextThemeOverride() {
+        let theme = ReaderTextTheme.getCurrent()
+        let isTextReader = reader is ReaderTextViewController || reader is ReaderPagedTextViewController
+        let styleOverride: UIUserInterfaceStyle = isTextReader ? ReaderTextTheme.getInterfaceStyleOverride() : .unspecified
+        navigationController?.overrideUserInterfaceStyle = styleOverride
+        // presented sheets don't inherit the override
+        presentedViewController?.overrideUserInterfaceStyle = styleOverride
+        let themed = isTextReader && (theme != .default || styleOverride != .unspecified)
+
+        // the bar appearance objects don't follow the trait override,
+        // so the theme colors are written into them directly
+        let backgroundColor = ReaderTextTheme.getCurrentBackground()
+        let textColor = ReaderTextTheme.getCurrentText()
+        let titleColor = themed ? textColor : nil
+        if let navigationBar = navigationController?.navigationBar {
+            func applyTheme(_ appearance: UINavigationBarAppearance) {
+                if themed {
+                    if #available(iOS 26.0, *), reader is ReaderTextViewController {
+                        // text scrolls under the bar, so keep it transparent
+                        appearance.configureWithTransparentBackground()
+                    } else {
+                        // nothing extends under the bar, so match the page color
+                        appearance.backgroundEffect = nil
+                        appearance.backgroundColor = backgroundColor
+                        appearance.shadowColor = .clear
+                    }
+                    appearance.titleTextAttributes[.foregroundColor] = textColor
+                } else {
+                    appearance.configureWithDefaultBackground()
+                    appearance.titleTextAttributes.removeValue(forKey: .foregroundColor)
+                }
+            }
+            let standard = navigationBar.standardAppearance
+            applyTheme(standard)
+            navigationBar.standardAppearance = standard
+            if let compact = navigationBar.compactAppearance {
+                applyTheme(compact)
+                navigationBar.compactAppearance = compact
+            }
+            if let scrollEdge = navigationBar.scrollEdgeAppearance {
+                applyTheme(scrollEdge)
+                navigationBar.scrollEdgeAppearance = scrollEdge
+            }
+        }
+        // the two-line title view (volume + chapter) uses plain labels instead
+        if let stackView = navigationItem.titleView as? UIStackView {
+            let labels = stackView.arrangedSubviews.compactMap { $0 as? UILabel }
+            if labels.count == 2 {
+                labels[0].textColor = titleColor?.withAlphaComponent(0.6) ?? .secondaryLabel
+                labels[1].textColor = titleColor ?? .label
+            }
+        }
+    }
+}
+
+// MARK: - Auto Scroll
+extension ReaderViewController {
+    @objc private func toggleAutoScroll() {
+        guard let webtoonReader = reader as? ReaderWebtoonViewController else { return }
+        webtoonReader.toggleAutoScroll()
+    }
+
+    private func updateAutoScrollButton() {
+        let webtoonReader = reader as? ReaderWebtoonViewController
+        let visible = webtoonReader != nil && UserDefaults.standard.bool(forKey: "Reader.autoScroll")
+
+        if !visible {
+            webtoonReader?.stopAutoScroll()
+        }
+
+        webtoonReader?.onAutoScrollStateChange = { [weak self] _ in
+            self?.updateAutoScrollButtonIcon()
+        }
+        webtoonReader?.onContentScrollingChange = { [weak self] isScrolling in
+            self?.setAutoScrollButtonDimmed(isScrolling)
+        }
+
+        autoScrollButton.isHidden = !visible
+        updateAutoScrollButtonPosition(visible: visible)
+        updateAutoScrollButtonIcon()
+    }
+
+    private func updateAutoScrollButtonPosition(
+        visible: Bool,
+        animated: Bool = false
+    ) {
+        let position = AppSettings.reader.autoScrollPosition.get()
+        let isRightAligned = position == .right
+
+        let applyPosition = {
+            self.autoScrollButtonLeadingConstraint.isActive = !isRightAligned
+            self.autoScrollButtonTrailingConstraint.isActive = isRightAligned
+
+            // when auto scroll button is on the right, the description button needs to be shifted to the left of it
+            self.descriptionTrailingConstraint.isActive = !visible || !isRightAligned
+            self.descriptionTrailingToAutoScrollConstraint.isActive = visible && isRightAligned
+        }
+
+        guard animated else {
+            applyPosition()
+            return
+        }
+
+        view.layoutIfNeeded()
+        applyPosition()
+
+        UIView.animate(
+            withDuration: 0.2,
+            delay: 0,
+            options: [.beginFromCurrentState, .curveEaseInOut]
+        ) {
+            self.view.layoutIfNeeded()
+        }
+    }
+
+    private func updateAutoScrollButtonIcon() {
+        let isAutoScrolling = (reader as? ReaderWebtoonViewController)?.isAutoScrolling == true
+        autoScrollButton.configuration?.image = UIImage(systemName: isAutoScrolling ? "pause.fill" : "play.fill")
+    }
+
+    @objc private func autoScrollButtonTouchDown() {
+        isInteractingWithAutoScrollButton = true
+        setAutoScrollButtonDimmed(false)
+    }
+
+    @objc private func autoScrollButtonTouchEnded() {
+        isInteractingWithAutoScrollButton = false
+        let isScrolling = (reader as? ReaderWebtoonViewController)?.isContentScrolling ?? false
+        setAutoScrollButtonDimmed(isScrolling)
+    }
+
+    private func setAutoScrollButtonDimmed(_ dimmed: Bool) {
+        let alpha: CGFloat = dimmed && !isInteractingWithAutoScrollButton ? 0.5 : 1
+
+        guard autoScrollButton.alpha != alpha else { return }
+
+        UIView.animate(
+            withDuration: 0.2,
+            delay: 0,
+            options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseInOut]
+        ) {
+            self.autoScrollButton.alpha = alpha
+        }
     }
 }
 
