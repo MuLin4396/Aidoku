@@ -12,6 +12,7 @@ struct SourceListsView: View {
     @State private var sourceLists: [URL: SourceList] = [:]
     @State private var missingSourceLists: Set<URL> = []
     @State private var showAddListFailAlert = false
+    @State private var addListFailMessage = NSLocalizedString("SOURCE_LIST_ADD_FAIL_TEXT")
 
     private var activeSourceListURLs: [URL] {
         sourceListsURLs.filter {
@@ -59,7 +60,7 @@ struct SourceListsView: View {
         .alert(NSLocalizedString("SOURCE_LIST_ADD_FAIL"), isPresented: $showAddListFailAlert) {
             Button(NSLocalizedString("OK"), role: .cancel) {}
         } message: {
-            Text(NSLocalizedString("SOURCE_LIST_ADD_FAIL_TEXT"))
+            Text(addListFailMessage)
         }
         .onReceive(NotificationCenter.default.publisher(for: .updateSourceLists)) { _ in
             Task {
@@ -147,6 +148,7 @@ struct SourceListsView: View {
         let url = url.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !url.isEmpty else { return }
         guard let url = URL(string: url) else {
+            addListFailMessage = NSLocalizedString("SOURCE_LIST_ADD_FAIL_TEXT")
             showAddListFailAlert = true
             return
         }
@@ -171,13 +173,14 @@ struct SourceListsView: View {
                 }
             }
 
-            let success = await SourceManager.shared.addSourceList(url: url)
+            let result = await SourceManager.shared.addSourceListResult(url: url)
             await done.set()
             await UIApplication.shared.appDelegate?.hideLoadingIndicator()
 
-            if success {
+            if result.succeeded {
                 await loadSourceLists()
             } else {
+                addListFailMessage = result.failureMessage
                 showAddListFailAlert = true
             }
         }

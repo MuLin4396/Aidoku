@@ -84,4 +84,18 @@ import AidokuRunner
         let json = URL(string: "https://aidoku-community.github.io/sources/index.min.json")!
         #expect(SourceList.indexURL(for: json) == nil)
     }
+
+    @Test func jsDelivrMirrorForCommunitySources() {
+        let json = URL(string: "https://aidoku-community.github.io/sources/index.min.json")!
+        #expect(
+            SourceList.jsDelivrMirror(for: json)?.absoluteString
+                == "https://cdn.jsdelivr.net/gh/aidoku-community/sources@gh-pages/index.min.json"
+        )
+
+        let candidates = SourceList.fetchCandidates(for: json)
+        #expect(candidates.contains(json))
+        #expect(candidates.contains {
+            $0.absoluteString == "https://cdn.jsdelivr.net/gh/aidoku-community/sources@gh-pages/index.min.json"
+        })
+    }
 }

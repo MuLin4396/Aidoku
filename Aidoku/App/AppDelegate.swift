@@ -502,8 +502,8 @@ extension AppDelegate {
                     let listUrl = URL(string: listUrlString)
                 {
                     Task {
-                        let success = await SourceManager.shared.addSourceList(url: listUrl)
-                        if success {
+                        let result = await SourceManager.shared.addSourceListResult(url: listUrl)
+                        if result.succeeded {
                             presentAlert(
                                 title: NSLocalizedString("SOURCE_LIST_ADDED"),
                                 message: NSLocalizedString("SOURCE_LIST_ADDED_TEXT")
@@ -511,7 +511,7 @@ extension AppDelegate {
                         } else {
                             presentAlert(
                                 title: NSLocalizedString("SOURCE_LIST_ADD_FAIL"),
-                                message: NSLocalizedString("SOURCE_LIST_ADD_FAIL_TEXT")
+                                message: result.failureMessage
                             )
                         }
                     }

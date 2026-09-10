@@ -44,6 +44,7 @@ actor SourceManager {
     private var sourceListLoadGeneration = 0
 
     var sourceListLoadFinished = false
+    private var lastSourceListLoadError: String?
 
     private init() {
         sourceListURLs = AppSettings.browse.sourceLists.get()
@@ -231,33 +232,49 @@ extension SourceManager {
         }
     }
 
+    private enum SourceListFetchResult {
+        case loaded(SourceList)
+        case failed(String)
+    }
+
     private func loadSourceList(url: URL) async -> SourceList? {
-        if let sourceList = await fetchAndParseSourceList(from: url) {
-            return sourceList
+        lastSourceListLoadError = nil
+        var lastError = "Unknown error"
+        for candidate in SourceList.fetchCandidates(for: url) {
+            switch await fetchAndParseSourceList(from: candidate) {
+                case let .loaded(sourceList):
+                    return sourceList
+                case let .failed(error):
+                    lastError = error
+                    LogManager.logger.error("Source list candidate failed (\(candidate.absoluteString)): \(error)")
+            }
         }
-        // Landing pages like https://aidoku-community.github.io/sources/ are HTML.
-        // The actual list is at index.min.json and uses the newer object format.
-        if let indexURL = SourceList.indexURL(for: url),
-           let sourceList = await fetchAndParseSourceList(from: indexURL) {
-            return sourceList
-        }
-        LogManager.logger.error("Failed to load source list from \(url.absoluteString)")
+        lastSourceListLoadError = lastError
+        LogManager.logger.error("Failed to load source list from \(url.absoluteString): \(lastError)")
         return nil
     }
 
-    private func fetchAndParseSourceList(from url: URL) async -> SourceList? {
-        var request = URLRequest(url: url, timeoutInterval: 15)
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
+    private func fetchAndParseSourceList(from url: URL) async -> SourceListFetchResult {
+        var request = URLRequest(url: url, timeoutInterval: 30)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.assumesHTTP3Capable = false
+        if let userAgent = await UserAgentProvider.shared.getUserAgent() {
+            request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        }
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             if let httpResponse = response as? HTTPURLResponse, !(200..<300).contains(httpResponse.statusCode) {
-                LogManager.logger.error("Source list request failed (\(httpResponse.statusCode)): \(url.absoluteString)")
-                return nil
+                return .failed("HTTP \(httpResponse.statusCode)")
             }
-            return SourceList.parse(data: data, url: url)
+            if let sourceList = SourceList.parse(data: data, url: url) {
+                return .loaded(sourceList)
+            }
+            let prefix = String(data: data.prefix(160), encoding: .utf8)?
+                .replacingOccurrences(of: "\n", with: " ")
+                ?? "\(data.count) bytes"
+            return .failed("Invalid source list JSON (\(prefix))")
         } catch {
-            LogManager.logger.error("Failed to fetch source list from \(url.absoluteString): \(error)")
-            return nil
+            return .failed(error.localizedDescription)
         }
     }
 }
@@ -841,10 +858,14 @@ extension SourceManager {
 // MARK: - Source List Management
 extension SourceManager {
     func addSourceList(url: URL, allowUnavailable: Bool = false) async -> Bool {
+        await addSourceListResult(url: url, allowUnavailable: allowUnavailable).succeeded
+    }
+
+    func addSourceListResult(url: URL, allowUnavailable: Bool = false) async -> SourceListAddResult {
         if sourceListURLs.contains(url) {
             // Already present: retry if it previously failed to load.
             if case .loaded = sourceListStates[url] {
-                return false
+                return .alreadyAdded
             }
             let result = await loadSourceList(url: url)
             if let result {
@@ -857,14 +878,14 @@ extension SourceManager {
                     }
                 }
                 NotificationCenter.default.post(name: .updateSourceLists, object: nil)
-                return true
+                return .success
             }
-            return false
+            return .failed(lastSourceListLoadError ?? "Unable to load source list")
         }
 
         let result = await loadSourceList(url: url)
         if !allowUnavailable && result == nil {
-            return false
+            return .failed(lastSourceListLoadError ?? "Unable to load source list")
         }
 
         sourceListURLs.insert(url)
@@ -885,7 +906,7 @@ extension SourceManager {
 
         NotificationCenter.default.post(name: .updateSourceLists, object: nil)
 
-        return true
+        return .success
     }
 
     func removeSourceList(url: URL) async {

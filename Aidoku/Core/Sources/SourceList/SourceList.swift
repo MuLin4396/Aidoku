@@ -64,4 +64,64 @@ extension SourceList {
         }
         return url.appendingPathComponent("index.min.json")
     }
+
+    /// Original URL, directory `index.min.json`, then jsDelivr GitHub Pages mirrors.
+    static func fetchCandidates(for url: URL) -> [URL] {
+        var originals = [url]
+        if let indexURL = indexURL(for: url) {
+            originals.append(indexURL)
+        }
+
+        var result: [URL] = []
+        var seen = Set<String>()
+        func append(_ url: URL) {
+            guard seen.insert(url.absoluteString).inserted else { return }
+            result.append(url)
+        }
+
+        originals.forEach(append)
+        for original in originals {
+            if let mirror = jsDelivrMirror(for: original) {
+                append(mirror)
+            }
+        }
+        return result
+    }
+
+    /// `https://org.github.io/repo/path` → `https://cdn.jsdelivr.net/gh/org/repo@gh-pages/path`
+    static func jsDelivrMirror(for url: URL) -> URL? {
+        guard let host = url.host?.lowercased(), host.hasSuffix(".github.io") else {
+            return nil
+        }
+        let org = String(host.dropLast(".github.io".count))
+        let parts = url.path.split(separator: "/").map(String.init)
+        guard let repo = parts.first, !org.isEmpty else {
+            return nil
+        }
+        let rest = parts.dropFirst().joined(separator: "/")
+        let filePath = rest.isEmpty ? "index.min.json" : rest
+        return URL(string: "https://cdn.jsdelivr.net/gh/\(org)/\(repo)@gh-pages/\(filePath)")
+    }
+}
+
+enum SourceListAddResult {
+    case success
+    case alreadyAdded
+    case failed(String)
+
+    var succeeded: Bool {
+        if case .success = self { return true }
+        return false
+    }
+
+    var failureMessage: String {
+        switch self {
+            case .success:
+                ""
+            case .alreadyAdded:
+                NSLocalizedString("SOURCE_LIST_ADD_FAIL_TEXT")
+            case let .failed(detail):
+                "\(NSLocalizedString("SOURCE_LIST_ADD_FAIL_TEXT"))\n\n\(detail)"
+        }
+    }
 }
