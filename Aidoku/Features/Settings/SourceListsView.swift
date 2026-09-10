@@ -144,6 +144,7 @@ struct SourceListsView: View {
     }
 
     func addSourceList(url: String) {
+        let url = url.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !url.isEmpty else { return }
         guard let url = URL(string: url) else {
             showAddListFailAlert = true

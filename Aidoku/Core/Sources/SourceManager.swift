@@ -116,8 +116,8 @@ extension SourceManager {
     }
 
     func startSourceListsReload(skipUpdateNotification: Bool = false) {
-        if let loadSourcesTask {
-            loadSourcesTask.cancel()
+        if let loadSourceListsTask {
+            loadSourceListsTask.cancel()
             finishSourceListStreams()
         }
 
@@ -232,39 +232,33 @@ extension SourceManager {
     }
 
     private func loadSourceList(url: URL) async -> SourceList? {
-        let session = URLSession.withTimeoutInterval(15)
-        guard let (data, _) = try? await session.data(from: url) else { return nil }
-        let sourceList = try? JSONDecoder().decode(CodableSourceList.self, from: data)
-
-        if let sourceList {
-            return sourceList.into(url: url)
-        } else {
-            return await loadLegacySourceList(url: url, session: session, data: data)
+        if let sourceList = await fetchAndParseSourceList(from: url) {
+            return sourceList
         }
+        // Landing pages like https://aidoku-community.github.io/sources/ are HTML.
+        // The actual list is at index.min.json and uses the newer object format.
+        if let indexURL = SourceList.indexURL(for: url),
+           let sourceList = await fetchAndParseSourceList(from: indexURL) {
+            return sourceList
+        }
+        LogManager.logger.error("Failed to load source list from \(url.absoluteString)")
+        return nil
     }
 
-    private func loadLegacySourceList(url: URL, session: URLSession, data: Data) async -> SourceList? {
-        let externalSources: [ExternalSourceInfo]? = if !url.pathExtension.isEmpty {
-            try? JSONDecoder().decode([ExternalSourceInfo].self, from: data)
-        } else {
-            if let sources = try? await session.object(
-                from: url.appendingPathComponent("index.min.json")
-            ) as [ExternalSourceInfo] {
-                sources
-            } else {
-                nil
+    private func fetchAndParseSourceList(from url: URL) async -> SourceList? {
+        var request = URLRequest(url: url, timeoutInterval: 15)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let httpResponse = response as? HTTPURLResponse, !(200..<300).contains(httpResponse.statusCode) {
+                LogManager.logger.error("Source list request failed (\(httpResponse.statusCode)): \(url.absoluteString)")
+                return nil
             }
+            return SourceList.parse(data: data, url: url)
+        } catch {
+            LogManager.logger.error("Failed to fetch source list from \(url.absoluteString): \(error)")
+            return nil
         }
-        guard var externalSources else { return nil }
-        for index in externalSources.indices {
-            externalSources[index].sourceUrl = url
-        }
-        return SourceList(
-            url: url,
-            name: NSLocalizedString("LEGACY_SOURCE_LIST"),
-            sources: externalSources,
-            legacy: true
-        )
     }
 }
 
@@ -847,7 +841,24 @@ extension SourceManager {
 // MARK: - Source List Management
 extension SourceManager {
     func addSourceList(url: URL, allowUnavailable: Bool = false) async -> Bool {
-        guard !sourceListURLs.contains(url) else {
+        if sourceListURLs.contains(url) {
+            // Already present: retry if it previously failed to load.
+            if case .loaded = sourceListStates[url] {
+                return false
+            }
+            let result = await loadSourceList(url: url)
+            if let result {
+                sourceListStates[url] = .loaded(result)
+                for source in result.sources {
+                    if let sourceLanguages = source.languages {
+                        sourceListLanguageCodes.formUnion(sourceLanguages)
+                    } else if let sourceLang = source.lang {
+                        sourceListLanguageCodes.insert(sourceLang)
+                    }
+                }
+                NotificationCenter.default.post(name: .updateSourceLists, object: nil)
+                return true
+            }
             return false
         }
 

@@ -494,15 +494,14 @@ extension AppDelegate {
 
     func handleUrl(url: URL) {
         if url.scheme == "aidoku" { // aidoku://
-            if url.host == "addSourceList" { // addSourceList?url=
+            if Self.isAddSourceListDeepLink(url) { // addSourceList?url= or add-source-list?url=
                 let components = URLComponents(url: url, resolvingAgainstBaseURL: false)
                 if
-                    let listUrlString = components?.queryItems?.first(where: { $0.name == "url" })?.value,
+                    let listUrlString = components?.queryItems?.first(where: { $0.name == "url" })?.value?
+                        .trimmingCharacters(in: .whitespacesAndNewlines),
                     let listUrl = URL(string: listUrlString)
                 {
                     Task {
-                        let sourceListURLs = await SourceManager.shared.getSourceListURLs()
-                        guard !sourceListURLs.contains(listUrl) else { return }
                         let success = await SourceManager.shared.addSourceList(url: listUrl)
                         if success {
                             presentAlert(
@@ -622,6 +621,11 @@ extension AppDelegate {
                 await handleDeepLink(url: url)
             }
         }
+    }
+
+    private static func isAddSourceListDeepLink(_ url: URL) -> Bool {
+        let host = url.host?.lowercased().replacingOccurrences(of: "-", with: "")
+        return host == "addsourcelist"
     }
 
     func handleDeepLink(url: URL) async -> Bool {

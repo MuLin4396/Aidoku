@@ -35,3 +35,33 @@ struct CodableSourceList: Codable {
         )
     }
 }
+
+extension SourceList {
+    /// Parses a source list payload. Newer lists are `{ name, sources }`; legacy lists are a raw source array.
+    static func parse(data: Data, url: URL) -> SourceList? {
+        let decoder = JSONDecoder()
+        if let sourceList = try? decoder.decode(CodableSourceList.self, from: data) {
+            return sourceList.into(url: url)
+        }
+        guard var sources = try? decoder.decode([ExternalSourceInfo].self, from: data) else {
+            return nil
+        }
+        for index in sources.indices {
+            sources[index].sourceUrl = url
+        }
+        return SourceList(
+            url: url,
+            name: NSLocalizedString("LEGACY_SOURCE_LIST"),
+            sources: sources,
+            legacy: true
+        )
+    }
+
+    /// Directory URLs such as `https://example.com/sources/` publish `index.min.json`.
+    static func indexURL(for url: URL) -> URL? {
+        guard url.pathExtension.isEmpty else {
+            return nil
+        }
+        return url.appendingPathComponent("index.min.json")
+    }
+}
