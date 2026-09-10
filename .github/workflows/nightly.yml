@@ -44,20 +44,7 @@ jobs:
             -skipPackagePluginValidation \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO     
-
-      - name: Build for macOS (Mac Catalyst)
-        run: |
-          xcodebuild -scheme "Aidoku" \
-          -configuration Release \
-          -destination 'platform=macOS,variant=Mac Catalyst' \
-          archive -archivePath build/Aidoku-Mac.xcarchive \
-          -skipPackagePluginValidation \
-          CODE_SIGN_IDENTITY="" \
-          CODE_SIGNING_REQUIRED=NO \
-          CODE_SIGNING_ALLOWED=NO \
-          SUPPORTS_MACCATALYST=YES \
-          SUPPORTED_PLATFORMS="iphoneos iphonesimulator macosx"
+            CODE_SIGNING_ALLOWED=NO
 
       - name: Package IPAs
         run: |
@@ -72,13 +59,6 @@ jobs:
           cp -r build/Aidoku-Device.xcarchive/Products/Applications/Aidoku.app Payload_Dev/Payload/
           (cd Payload_Dev && zip -r ../$DEV_NAME Payload)
 
-      - name: Package macOS DMG
-        run: |
-          DMG_NAME="Aidoku_nightly_macos_${{ steps.meta.outputs.date }}_${{ steps.meta.outputs.sha_short }}.dmg"
-          hdiutil create -volname "Aidoku" \
-            -srcfolder build/Aidoku-Mac.xcarchive/Products/Applications \
-            -ov -format UDZO "$DMG_NAME"
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -86,5 +66,4 @@ jobs:
           path: |
             Aidoku_nightly_simulator_${{ steps.meta.outputs.date }}_${{ steps.meta.outputs.sha_short }}.ipa
             Aidoku_nightly_device_${{ steps.meta.outputs.date }}_${{ steps.meta.outputs.sha_short }}.ipa
-            Aidoku_nightly_macos_${{ steps.meta.outputs.date }}_${{ steps.meta.outputs.sha_short }}.dmg
           if-no-files-found: error
