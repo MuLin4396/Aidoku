@@ -239,18 +239,31 @@ extension SourceManager {
 
     private func loadSourceList(url: URL) async -> SourceList? {
         lastSourceListLoadError = nil
-        var lastError = "Unknown error"
+        var originalError: String?
+        var mirrorFailures: [String] = []
         for candidate in SourceList.fetchCandidates(for: url) {
             switch await fetchAndParseSourceList(from: candidate) {
                 case let .loaded(sourceList):
                     return sourceList
                 case let .failed(error):
-                    lastError = error
                     LogManager.logger.error("Source list candidate failed (\(candidate.absoluteString)): \(error)")
+                    if candidate.host == url.host {
+                        originalError = originalError ?? error
+                    } else {
+                        let host = candidate.host ?? candidate.absoluteString
+                        mirrorFailures.append("\(host): \(error)")
+                    }
             }
         }
-        lastSourceListLoadError = lastError
-        LogManager.logger.error("Failed to load source list from \(url.absoluteString): \(lastError)")
+        var parts: [String] = []
+        if let originalError {
+            parts.append("\(url.absoluteString)\n\(originalError)")
+        }
+        if !mirrorFailures.isEmpty {
+            parts.append(mirrorFailures.joined(separator: "\n"))
+        }
+        lastSourceListLoadError = parts.isEmpty ? "Unable to load source list" : parts.joined(separator: "\n\n")
+        LogManager.logger.error("Failed to load source list from \(url.absoluteString): \(lastSourceListLoadError ?? "")")
         return nil
     }
 

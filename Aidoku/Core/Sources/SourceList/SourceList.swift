@@ -65,7 +65,7 @@ extension SourceList {
         return url.appendingPathComponent("index.min.json")
     }
 
-    /// Original URL, directory `index.min.json`, then jsDelivr GitHub Pages mirrors.
+    /// Original URL, directory `index.min.json`, then GitHub Pages mirrors.
     static func fetchCandidates(for url: URL) -> [URL] {
         var originals = [url]
         if let indexURL = indexURL(for: url) {
@@ -81,26 +81,31 @@ extension SourceList {
 
         originals.forEach(append)
         for original in originals {
-            if let mirror = jsDelivrMirror(for: original) {
-                append(mirror)
-            }
+            githubPagesMirrors(for: original).forEach(append)
         }
         return result
     }
 
-    /// `https://org.github.io/repo/path` → `https://cdn.jsdelivr.net/gh/org/repo@gh-pages/path`
-    static func jsDelivrMirror(for url: URL) -> URL? {
+    /// Mirrors for `https://org.github.io/repo/path`.
+    /// `cdn.jsdelivr.net` is omitted: it is commonly DNS-hijacked in some networks
+    /// and fails TLS with an invalid certificate.
+    static func githubPagesMirrors(for url: URL) -> [URL] {
         guard let host = url.host?.lowercased(), host.hasSuffix(".github.io") else {
-            return nil
+            return []
         }
         let org = String(host.dropLast(".github.io".count))
         let parts = url.path.split(separator: "/").map(String.init)
         guard let repo = parts.first, !org.isEmpty else {
-            return nil
+            return []
         }
         let rest = parts.dropFirst().joined(separator: "/")
         let filePath = rest.isEmpty ? "index.min.json" : rest
-        return URL(string: "https://cdn.jsdelivr.net/gh/\(org)/\(repo)@gh-pages/\(filePath)")
+        let templates = [
+            "https://cdn.jsdmirror.com/gh/\(org)/\(repo)@gh-pages/\(filePath)",
+            "https://fastly.jsdelivr.net/gh/\(org)/\(repo)@gh-pages/\(filePath)",
+            "https://raw.githubusercontent.com/\(org)/\(repo)/gh-pages/\(filePath)"
+        ]
+        return templates.compactMap(URL.init(string:))
     }
 }
 

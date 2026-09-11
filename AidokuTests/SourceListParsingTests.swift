@@ -85,17 +85,18 @@ import AidokuRunner
         #expect(SourceList.indexURL(for: json) == nil)
     }
 
-    @Test func jsDelivrMirrorForCommunitySources() {
+    @Test func githubPagesMirrorsForCommunitySources() {
         let json = URL(string: "https://aidoku-community.github.io/sources/index.min.json")!
-        #expect(
-            SourceList.jsDelivrMirror(for: json)?.absoluteString
-                == "https://cdn.jsdelivr.net/gh/aidoku-community/sources@gh-pages/index.min.json"
-        )
+        let mirrors = SourceList.githubPagesMirrors(for: json).map(\.absoluteString)
+        #expect(mirrors.contains("https://cdn.jsdmirror.com/gh/aidoku-community/sources@gh-pages/index.min.json"))
+        #expect(mirrors.contains("https://fastly.jsdelivr.net/gh/aidoku-community/sources@gh-pages/index.min.json"))
+        #expect(mirrors.contains("https://raw.githubusercontent.com/aidoku-community/sources/gh-pages/index.min.json"))
+        #expect(!mirrors.contains { $0.contains("cdn.jsdelivr.net") })
 
         let candidates = SourceList.fetchCandidates(for: json)
         #expect(candidates.contains(json))
         #expect(candidates.contains {
-            $0.absoluteString == "https://cdn.jsdelivr.net/gh/aidoku-community/sources@gh-pages/index.min.json"
+            $0.absoluteString == "https://cdn.jsdmirror.com/gh/aidoku-community/sources@gh-pages/index.min.json"
         })
     }
 }
