@@ -67,3 +67,87 @@ jobs:
             Aidoku_nightly_simulator_${{ steps.meta.outputs.date }}_${{ steps.meta.outputs.sha_short }}.ipa
             Aidoku_nightly_device_${{ steps.meta.outputs.date }}_${{ steps.meta.outputs.sha_short }}.ipa
           if-no-files-found: error
+
+      # ==========================================
+      # 新增：发送 Webhook 通知步骤
+      # ==========================================
+      - name: Send Webhook Notification
+        if: always() # 无论成功或失败都执行（若只想成功时发送，可改为 if: success()）
+        env:
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          BUILD_STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT_SHA: ${{ steps.meta.outputs.sha_short }}
+          DATE: ${{ steps.meta.outputs.date }}
+        run: |
+          # 根据你的 IM 工具选择对应的 payload 格式：
+          
+          # 【方案 A：飞书机器人 (Feishu/Lark)】
+          curl -X POST "$WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "msg_type": "interactive",
+              "card": {
+                "header": {
+                  "title": {
+                    "tag": "plain_text",
+                    "content": "📱 iOS Nightly IPA 打包完成 ('"$BUILD_STATUS"')"
+                  },
+                  "template": "'"$([ "$BUILD_STATUS" = "success" ] && echo "green" || echo "red")"'"
+                },
+                "elements": [
+                  {
+                    "tag": "div",
+                    "text": {
+                      "tag": "lark_md",
+                      "content": "**构建日期**: '"$DATE"'\n**Commit**: ['"$COMMIT_SHA"']('"$(echo ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})"')\n**分支**: '"${{ github.ref_name }}"'\n**产物列表**:\n- Aidoku_nightly_simulator_'"$DATE"'_'"$COMMIT_SHA"'.ipa\n- Aidoku_nightly_device_'"$DATE"'_'"$COMMIT_SHA"'.ipa"
+                    }
+                  },
+                  {
+                    "tag": "action",
+                    "actions": [
+                      {
+                        "tag": "button",
+                        "text": {
+                          "tag": "plain_text",
+                          "content": "📥 前往下载产物 (Artifacts)"
+                        },
+                        "type": "primary",
+                        "url": "'"$RUN_URL"'"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }'
+
+          # 【方案 B：企业微信机器人 (WeCom)】（如使用请注释掉方案 A，取消注释下方）
+          # curl -X POST "$WEBHOOK_URL" \
+          #   -H "Content-Type: application/json" \
+          #   -d '{
+          #     "msgtype": "markdown",
+          #     "markdown": {
+          #       "content": "### 📱 iOS Nightly IPA 打包完成 <font color=\"info\">'"$BUILD_STATUS"'</font>\n> **日期**: '"$DATE"'\n> **Commit**: ['"$COMMIT_SHA"']('"$(echo ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})"')\n> **下载链接**: [点击前往 Artifacts 页面下载]('"$RUN_URL"')\n> **产物包名**:\n> - Aidoku_nightly_simulator_'"$DATE"'_'"$COMMIT_SHA"'.ipa\n> - Aidoku_nightly_device_'"$DATE"'_'"$COMMIT_SHA"'.ipa"
+          #     }
+          #   }'
+
+          # 【方案 C：钉钉机器人 (DingTalk)】（如使用请注释掉方案 A，取消注释下方）
+          # curl -X POST "$WEBHOOK_URL" \
+          #   -H "Content-Type: application/json" \
+          #   -d '{
+          #     "msgtype": "markdown",
+          #     "markdown": {
+          #       "title": "iOS Nightly IPA 构建通知",
+          #       "text": "### 📱 iOS Nightly IPA 打包完成 ('"$BUILD_STATUS"')\n\n- **日期**: '"$DATE"'\n- **Commit**: '"$COMMIT_SHA"'\n- **分支**: '"${{ github.ref_name }}"'\n\n[👉 点击前往下载产物 (Artifacts)]('"$RUN_URL"')\n"
+          #     }
+          #   }'
+
+          # 【方案 D：通用自定义 Webhook JSON】
+          # curl -X POST "$WEBHOOK_URL" \
+          #   -H "Content-Type: application/json" \
+          #   -d '{
+          #     "status": "'"$BUILD_STATUS"'",
+          #     "date": "'"$DATE"'",
+          #     "sha": "'"$COMMIT_SHA"'",
+          #     "download_url": "'"$RUN_URL"'"
+          #   }'
