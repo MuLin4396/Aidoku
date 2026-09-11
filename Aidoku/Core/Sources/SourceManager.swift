@@ -571,6 +571,19 @@ extension SourceManager {
         return result
     }
 
+    func importSources(from urls: [URL]) async -> (succeeded: Int, failed: Int) {
+        var succeeded = 0
+        var failed = 0
+        for url in urls {
+            if await importSource(from: url) != nil {
+                succeeded += 1
+            } else {
+                failed += 1
+            }
+        }
+        return (succeeded, failed)
+    }
+
     enum CustomSourceKind {
         case demo
         case local

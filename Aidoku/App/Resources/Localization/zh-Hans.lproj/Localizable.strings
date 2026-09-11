@@ -469,6 +469,7 @@
 "UNAVAILABLE_SOURCE_LISTS" = "不可用来源列表";
 "COPY_URL" = "复制网址";
 "SOURCE_IMPORT_FAIL_TEXT" = "导入图源失败。请确保您的aix文件有效。";
+"SOURCE_IMPORT_PARTIAL_FAIL_TEXT" = "有 %d 个图源未能导入（共 %d 个）。请确保您的 aix 文件有效。";
 "ADD" = "添加";
 "ALL_CHAPTERS_LOCKED" = "所有章节锁定";
 "DEMO_KOMGA_SERVER_INFO" = "你可以使用邮箱 `demo@komga.org` 和密码 `komga-demo` 登录演示 Komga 服务器。";

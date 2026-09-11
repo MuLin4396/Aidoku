@@ -17,6 +17,7 @@ struct AddSourceView: View {
 
     @State private var hasLocalSourceInstalled: Bool
     @State private var loadedInitial = false
+    @State private var showFileImporter = false
     @State private var importing = false
     @State private var searching = false
     @State private var searchText = ""
@@ -25,6 +26,8 @@ struct AddSourceView: View {
     @State private var showKavitaSetup = false
     @State private var showSuwayomiSetup = false
     @State private var showImportFailAlert = false
+    @State private var importFailMessage = NSLocalizedString("SOURCE_IMPORT_FAIL_TEXT")
+    @State private var dismissAfterImportFail = false
 
     @State private var searchFocused: Bool? = false
 
@@ -43,7 +46,8 @@ struct AddSourceView: View {
                 if !searching {
                     Section {
                         LargeButton {
-                            importing = true
+                            guard !importing else { return }
+                            showFileImporter = true
                         } label: {
                             HStack {
                                 if importing {
@@ -144,32 +148,33 @@ struct AddSourceView: View {
             .environment(\.autocorrectionDisabled, true)
             .animation(.default, value: searchText)
             .animation(.default, value: searching)
-            .sheet(isPresented: $importing) {
+            .sheet(isPresented: $showFileImporter) {
                 DocumentPickerView(
                     allowedContentTypes: [
                         UTType(exportedAs: "app.aidoku.Aidoku.aix", conformingTo: .zip),
                         .init(filenameExtension: "aix")!
                     ],
+                    allowsMultipleSelection: true,
                     onDocumentsPicked: { urls in
-                        guard let url = urls.first else {
-                            return
-                        }
+                        guard !urls.isEmpty else { return }
                         Task {
-                            let result = await SourceManager.shared.importSource(from: url)
-                            if result == nil {
-                                showImportFailAlert = true
-                            } else {
-                                dismiss()
-                            }
+                            importing = true
+                            let result = await SourceManager.shared.importSources(from: urls)
+                            importing = false
+                            handleImportResult(SourceFileImportOutcome(succeeded: result.succeeded, failed: result.failed))
                         }
                     }
                 )
                 .ignoresSafeArea()
             }
             .alert(NSLocalizedString("IMPORT_FAIL"), isPresented: $showImportFailAlert) {
-                Button(NSLocalizedString("OK"), role: .cancel) {}
+                Button(NSLocalizedString("OK"), role: .cancel) {
+                    if dismissAfterImportFail {
+                        dismiss()
+                    }
+                }
             } message: {
-                Text(NSLocalizedString("SOURCE_IMPORT_FAIL_TEXT"))
+                Text(importFailMessage)
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -191,7 +196,7 @@ struct AddSourceView: View {
                 }
             }
         }
-        .interactiveDismissDisabled(searching)
+        .interactiveDismissDisabled(searching || importing)
         .onReceive(NotificationCenter.default.publisher(for: .sourceLoaded)) { output in
             if let key = output.object as? String, key == LocalSourceRunner.sourceKey {
                 hasLocalSourceInstalled = true
@@ -209,6 +214,27 @@ struct AddSourceView: View {
         withAnimation {
             externalSources = result.0
             allSourcesInstalled = result.allSourcesInstalled
+        }
+    }
+
+    func handleImportResult(_ outcome: SourceFileImportOutcome) {
+        switch outcome {
+            case .none:
+                break
+            case .success:
+                dismiss()
+            case .allFailed:
+                importFailMessage = NSLocalizedString("SOURCE_IMPORT_FAIL_TEXT")
+                dismissAfterImportFail = false
+                showImportFailAlert = true
+            case .partial(let failed, let total):
+                importFailMessage = String(
+                    format: NSLocalizedString("SOURCE_IMPORT_PARTIAL_FAIL_TEXT"),
+                    failed,
+                    total
+                )
+                dismissAfterImportFail = true
+                showImportFailAlert = true
         }
     }
 
@@ -368,5 +394,22 @@ struct AddSourceView: View {
                 return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             }
         return (result, allSourcesInstalled)
+    }
+}
+
+enum SourceFileImportOutcome: Equatable {
+    case none
+    case success
+    case allFailed
+    case partial(failed: Int, total: Int)
+
+    init(succeeded: Int, failed: Int) {
+        if failed == 0 {
+            self = succeeded == 0 ? .none : .success
+        } else if succeeded == 0 {
+            self = .allFailed
+        } else {
+            self = .partial(failed: failed, total: succeeded + failed)
+        }
     }
 }
