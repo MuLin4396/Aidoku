@@ -2,25 +2,35 @@ name: Build and upload nightly ipa
 
 on: [push, workflow_dispatch]
 
+permissions:
+  contents: write # 允许创建/更新 Release
+
 jobs:
   build:
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
       - name: Set up Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "26.6"
+
       - name: Install Xcode platforms
         run: |
-          xcrun simctl list > /dev/null # fixes next command sometimes failing
+          xcrun simctl list > /dev/null
           xcodebuild -downloadPlatform iOS
 
       - name: Get build metadata
         id: meta
         run: |
           echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-          echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
+          echo "commit_msg=$(git log -1 --pretty=format:'%s')" >> $GITHUB_OUTPUT
+          echo "commit_author=$(git log -1 --pretty=format:'%an')" >> $GITHUB_OUTPUT
+          # 精确到秒的时间戳，格式如：20260911_110730
+          echo "date=$(date +'%Y%m%d_%H%M%S')" >> $GITHUB_OUTPUT
 
       - name: Build for iOS Simulator (Device Hub)
         run: |
@@ -47,6 +57,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO
 
       - name: Package IPAs
+        id: package
         run: |
           SIM_NAME="Aidoku_nightly_simulator_${{ steps.meta.outputs.date }}_${{ steps.meta.outputs.sha_short }}.ipa"
           DEV_NAME="Aidoku_nightly_device_${{ steps.meta.outputs.date }}_${{ steps.meta.outputs.sha_short }}.ipa"
@@ -59,95 +70,195 @@ jobs:
           cp -r build/Aidoku-Device.xcarchive/Products/Applications/Aidoku.app Payload_Dev/Payload/
           (cd Payload_Dev && zip -r ../$DEV_NAME Payload)
 
-      - name: Upload artifacts
+          # 输出产物信息
+          echo "sim_name=$SIM_NAME" >> $GITHUB_OUTPUT
+          echo "sim_size=$(du -h "$SIM_NAME" | cut -f1)" >> $GITHUB_OUTPUT
+          echo "dev_name=$DEV_NAME" >> $GITHUB_OUTPUT
+          echo "dev_size=$(du -h "$DEV_NAME" | cut -f1)" >> $GITHUB_OUTPUT
+
+      # 上传独立 Artifacts
+      - name: Upload Device IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Aidoku_nightly_${{ steps.meta.outputs.date }}_${{ steps.meta.outputs.sha_short }}
-          path: |
-            Aidoku_nightly_simulator_${{ steps.meta.outputs.date }}_${{ steps.meta.outputs.sha_short }}.ipa
-            Aidoku_nightly_device_${{ steps.meta.outputs.date }}_${{ steps.meta.outputs.sha_short }}.ipa
+          name: ${{ steps.package.outputs.dev_name }}
+          path: ${{ steps.package.outputs.dev_name }}
           if-no-files-found: error
 
-      # ==========================================
-      # 新增：发送 Webhook 通知步骤
-      # ==========================================
-      - name: Send Webhook Notification
-        if: always() # 无论成功或失败都执行（若只想成功时发送，可改为 if: success()）
+      - name: Upload Simulator IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.sim_name }}
+          path: ${{ steps.package.outputs.sim_name }}
+          if-no-files-found: error
+
+      # 发布到 GitHub Release 以获取单文件直链
+      - name: Publish to GitHub Release
+        id: create_release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: nightly-${{ steps.meta.outputs.date }}-${{ steps.meta.outputs.sha_short }}
+        run: |
+          gh release create "$TAG_NAME" \
+            "${{ steps.package.outputs.dev_name }}" \
+            "${{ steps.package.outputs.sim_name }}" \
+            --title "Nightly Build - ${{ steps.meta.outputs.date }} (${{ steps.meta.outputs.sha_short }})" \
+            --notes "Commit: ${{ steps.meta.outputs.commit_msg }} (${{ github.sha }})" \
+            --prerelease
+
+          BASE_URL="${{ github.server_url }}/${{ github.repository }}/releases/download/$TAG_NAME"
+          echo "dev_download_url=$BASE_URL/${{ steps.package.outputs.dev_name }}" >> $GITHUB_OUTPUT
+          echo "sim_download_url=$BASE_URL/${{ steps.package.outputs.sim_name }}" >> $GITHUB_OUTPUT
+
+      # 飞书机器人通知
+      - name: Send Feishu Notification
+        if: always()
         env:
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-          BUILD_STATUS: ${{ job.status }}
+          JOB_STATUS: ${{ job.status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          COMMIT_SHA: ${{ steps.meta.outputs.sha_short }}
-          DATE: ${{ steps.meta.outputs.date }}
+          COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
+          SHA: ${{ steps.meta.outputs.sha_short }}
+          MSG: ${{ steps.meta.outputs.commit_msg }}
+          AUTHOR: ${{ steps.meta.outputs.commit_author }}
+          BRANCH: ${{ github.ref_name }}
+          ACTOR: ${{ github.actor }}
+          EVENT: ${{ github.event_name }}
+          DEV_NAME: ${{ steps.package.outputs.dev_name }}
+          DEV_SIZE: ${{ steps.package.outputs.dev_size }}
+          DEV_URL: ${{ steps.create_release.outputs.dev_download_url }}
+          SIM_NAME: ${{ steps.package.outputs.sim_name }}
+          SIM_SIZE: ${{ steps.package.outputs.sim_size }}
+          SIM_URL: ${{ steps.create_release.outputs.sim_download_url }}
         run: |
-          # 根据你的 IM 工具选择对应的 payload 格式：
-          
-          # 【方案 A：飞书机器人 (Feishu/Lark)】
-          curl -X POST "$WEBHOOK_URL" \
+          if [ "$JOB_STATUS" = "success" ]; then
+            CARD_COLOR="green"
+            STATUS_TITLE="✅ iOS Nightly IPA 打包成功"
+          elif [ "$JOB_STATUS" = "cancelled" ]; then
+            CARD_COLOR="orange"
+            STATUS_TITLE="⚠️ iOS Nightly IPA 打包已取消"
+          else
+            CARD_COLOR="red"
+            STATUS_TITLE="❌ iOS Nightly IPA 打包失败"
+          fi
+
+          [ "$EVENT" = "workflow_dispatch" ] && TRIGGER_TXT="手动触发 ($ACTOR)" || TRIGGER_TXT="Push 事件 ($ACTOR)"
+
+          if [ "$JOB_STATUS" = "success" ]; then
+            ARTIFACTS_MD="**📦 独立构建产物:**\n• 📱 **Device 真机包**: \`$DEV_NAME\` (**$DEV_SIZE**)\n• 💻 **Simulator 模拟器包**: \`$SIM_NAME\` (**$SIM_SIZE**)"
+            ACTION_BUTTONS='[
+              {
+                "tag": "button",
+                "text": {
+                  "tag": "plain_text",
+                  "content": "📱 下载 Device IPA"
+                },
+                "type": "primary",
+                "url": "'"$DEV_URL"'"
+              },
+              {
+                "tag": "button",
+                "text": {
+                  "tag": "plain_text",
+                  "content": "💻 下载 Simulator IPA"
+                },
+                "type": "primary",
+                "url": "'"$SIM_URL"'"
+              },
+              {
+                "tag": "button",
+                "text": {
+                  "tag": "plain_text",
+                  "content": "🔍 查看 Commit"
+                },
+                "type": "default",
+                "url": "'"$COMMIT_URL"'"
+              }
+            ]'
+          else
+            ARTIFACTS_MD="**⚠️ 未生成产物**，请前往 Run 日志排查编译错误。"
+            ACTION_BUTTONS='[
+              {
+                "tag": "button",
+                "text": {
+                  "tag": "plain_text",
+                  "content": "📋 查看构建日志"
+                },
+                "type": "danger",
+                "url": "'"$RUN_URL"'"
+              }
+            ]'
+          fi
+
+          curl -s -X POST "$WEBHOOK_URL" \
             -H "Content-Type: application/json" \
             -d '{
               "msg_type": "interactive",
               "card": {
+                "config": {
+                  "wide_screen_mode": true
+                },
                 "header": {
                   "title": {
                     "tag": "plain_text",
-                    "content": "📱 iOS Nightly IPA 打包完成 ('"$BUILD_STATUS"')"
+                    "content": "'"$STATUS_TITLE"'"
                   },
-                  "template": "'"$([ "$BUILD_STATUS" = "success" ] && echo "green" || echo "red")"'"
+                  "template": "'"$CARD_COLOR"'"
                 },
                 "elements": [
                   {
                     "tag": "div",
+                    "fields": [
+                      {
+                        "is_short": true,
+                        "text": {
+                          "tag": "lark_md",
+                          "content": "**🌿 分支:**\n`'"$BRANCH"'`"
+                        }
+                      },
+                      {
+                        "is_short": true,
+                        "text": {
+                          "tag": "lark_md",
+                          "content": "**👤 触发者 / 方式:**\n'"$TRIGGER_TXT"'"
+                        }
+                      },
+                      {
+                        "is_short": true,
+                        "text": {
+                          "tag": "lark_md",
+                          "content": "**🔨 提交 Hash:**\n['"$SHA"']('"$COMMIT_URL"')"
+                        }
+                      },
+                      {
+                        "is_short": true,
+                        "text": {
+                          "tag": "lark_md",
+                          "content": "**⚙️ 编译环境:**\nXcode 26.6 / macOS-26"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "tag": "div",
                     "text": {
                       "tag": "lark_md",
-                      "content": "**构建日期**: '"$DATE"'\n**Commit**: ['"$COMMIT_SHA"']('"$(echo ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})"')\n**分支**: '"${{ github.ref_name }}"'\n**产物列表**:\n- Aidoku_nightly_simulator_'"$DATE"'_'"$COMMIT_SHA"'.ipa\n- Aidoku_nightly_device_'"$DATE"'_'"$COMMIT_SHA"'.ipa"
+                      "content": "**💬 提交信息:**\n> '"$MSG"' *(by '"$AUTHOR"')*"
+                    }
+                  },
+                  {
+                    "tag": "hr"
+                  },
+                  {
+                    "tag": "div",
+                    "text": {
+                      "tag": "lark_md",
+                      "content": "'"$ARTIFACTS_MD"'"
                     }
                   },
                   {
                     "tag": "action",
-                    "actions": [
-                      {
-                        "tag": "button",
-                        "text": {
-                          "tag": "plain_text",
-                          "content": "📥 前往下载产物 (Artifacts)"
-                        },
-                        "type": "primary",
-                        "url": "'"$RUN_URL"'"
-                      }
-                    ]
+                    "actions": '"$ACTION_BUTTONS"'
                   }
                 ]
               }
             }'
-
-          # 【方案 B：企业微信机器人 (WeCom)】（如使用请注释掉方案 A，取消注释下方）
-          # curl -X POST "$WEBHOOK_URL" \
-          #   -H "Content-Type: application/json" \
-          #   -d '{
-          #     "msgtype": "markdown",
-          #     "markdown": {
-          #       "content": "### 📱 iOS Nightly IPA 打包完成 <font color=\"info\">'"$BUILD_STATUS"'</font>\n> **日期**: '"$DATE"'\n> **Commit**: ['"$COMMIT_SHA"']('"$(echo ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})"')\n> **下载链接**: [点击前往 Artifacts 页面下载]('"$RUN_URL"')\n> **产物包名**:\n> - Aidoku_nightly_simulator_'"$DATE"'_'"$COMMIT_SHA"'.ipa\n> - Aidoku_nightly_device_'"$DATE"'_'"$COMMIT_SHA"'.ipa"
-          #     }
-          #   }'
-
-          # 【方案 C：钉钉机器人 (DingTalk)】（如使用请注释掉方案 A，取消注释下方）
-          # curl -X POST "$WEBHOOK_URL" \
-          #   -H "Content-Type: application/json" \
-          #   -d '{
-          #     "msgtype": "markdown",
-          #     "markdown": {
-          #       "title": "iOS Nightly IPA 构建通知",
-          #       "text": "### 📱 iOS Nightly IPA 打包完成 ('"$BUILD_STATUS"')\n\n- **日期**: '"$DATE"'\n- **Commit**: '"$COMMIT_SHA"'\n- **分支**: '"${{ github.ref_name }}"'\n\n[👉 点击前往下载产物 (Artifacts)]('"$RUN_URL"')\n"
-          #     }
-          #   }'
-
-          # 【方案 D：通用自定义 Webhook JSON】
-          # curl -X POST "$WEBHOOK_URL" \
-          #   -H "Content-Type: application/json" \
-          #   -d '{
-          #     "status": "'"$BUILD_STATUS"'",
-          #     "date": "'"$DATE"'",
-          #     "sha": "'"$COMMIT_SHA"'",
-          #     "download_url": "'"$RUN_URL"'"
-          #   }'
