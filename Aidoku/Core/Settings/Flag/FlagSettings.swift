@@ -14,7 +14,8 @@ struct FlagSettings: Sendable {
             showedLegacySourceListNotice,
             libraryRefreshInProgress,
             downloadChapterSortAscending,
-            dismissedDictionaryInfo
+            dismissedDictionaryInfo,
+            seededBuiltInCommunitySourceList
         ]
     }
 
@@ -25,4 +26,5 @@ struct FlagSettings: Sendable {
     let libraryRefreshInProgress = SettingsKey<Bool>("Flag.libraryRefreshInProgress", default: false)
     let downloadChapterSortAscending = SettingsKey<Bool>("Flag.downloadChapterSortAscending", default: false)
     let dismissedDictionaryInfo = SettingsKey<Bool>("Flag.dismissedDictionaryInfo", default: false)
+    let seededBuiltInCommunitySourceList = SettingsKey<Bool>("Flag.seededBuiltInCommunitySourceList", default: false)
 }

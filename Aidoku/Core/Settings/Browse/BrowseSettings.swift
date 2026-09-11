@@ -25,5 +25,8 @@ struct BrowseSettings: Sendable {
     let updateCount = SettingsKey<Int>("Browse.updateCount", default: 0)
     let pinnedList = SettingsKey<[String]>("Browse.pinnedList", default: [])
     let disabledSources = SettingsKey<Set<String>>("Browse.disabledSources", default: [])
-    let sourceLists = SettingsKey<Set<URL>>("Browse.sourceLists", default: [])
+    let sourceLists = SettingsKey<Set<URL>>(
+        "Browse.sourceLists",
+        default: [BuiltInSourceList.remoteURL]
+    )
 }

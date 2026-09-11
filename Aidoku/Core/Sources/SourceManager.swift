@@ -46,7 +46,13 @@ actor SourceManager {
     var sourceListLoadFinished = false
 
     private init() {
-        sourceListURLs = AppSettings.browse.sourceLists.get()
+        var urls = AppSettings.browse.sourceLists.get()
+        if !AppSettings.flags.seededBuiltInCommunitySourceList.get() {
+            urls.insert(BuiltInSourceList.remoteURL)
+            AppSettings.browse.sourceLists.set(urls)
+            AppSettings.flags.seededBuiltInCommunitySourceList.set(true)
+        }
+        sourceListURLs = urls
         disabledSourceKeys = AppSettings.browse.disabledSources.get()
     }
 
@@ -232,6 +238,17 @@ extension SourceManager {
     }
 
     private func loadSourceList(url: URL) async -> SourceList? {
+        if let remote = await fetchRemoteSourceList(url: url) {
+            return remote
+        }
+        if let bundled = BuiltInSourceList.sourceList(matching: url) {
+            LogManager.logger.info("Using bundled community source list")
+            return bundled
+        }
+        return nil
+    }
+
+    private func fetchRemoteSourceList(url: URL) async -> SourceList? {
         let session = URLSession.withTimeoutInterval(15)
         guard let (data, _) = try? await session.data(from: url) else { return nil }
         let sourceList = try? JSONDecoder().decode(CodableSourceList.self, from: data)
