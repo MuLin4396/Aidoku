@@ -99,4 +99,31 @@ import AidokuRunner
             $0.absoluteString == "https://cdn.jsdmirror.com/gh/aidoku-community/sources@gh-pages/index.min.json"
         })
     }
+
+    @Test func communityListNameIsDetected() throws {
+        let json = """
+        {"name":"Aidoku Community Sources","sources":[]}
+        """
+        let list = try #require(SourceList.parse(data: Data(json.utf8), url: SourceList.communityIndexURL))
+        #expect(SourceList.isCommunityList(list))
+    }
+
+    @Test func tlsTrustErrorsAreDetected() {
+        #expect(URLError(.serverCertificateUntrusted).isTLSTrustFailure)
+        #expect(URLError(.serverCertificateHasUnknownRoot).isTLSTrustFailure)
+        #expect(URLError(.secureConnectionFailed).isTLSTrustFailure)
+        #expect(!URLError(.timedOut).isTLSTrustFailure)
+        #expect(!URLError(.notConnectedToInternet).isTLSTrustFailure)
+    }
+
+    @Test func sourceListCacheRoundTrip() throws {
+        let url = try #require(URL(string: "https://example.test/source-list-cache-\(UUID().uuidString).json"))
+        let data = Data("{\"name\":\"Cached\",\"sources\":[]}".utf8)
+        SourceListCache.store(data: data, listURL: url, resolveBase: url)
+        let cached = try #require(SourceListCache.load(listURL: url))
+        #expect(cached.data == data)
+        #expect(cached.resolveBase == url)
+        let list = try #require(SourceList.parse(data: cached.data, url: cached.resolveBase))
+        #expect(list.name == "Cached")
+    }
 }

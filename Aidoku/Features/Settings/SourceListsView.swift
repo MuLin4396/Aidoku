@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SourceListsView: View {
     @State private var sourceListsURLs: [URL] = []
@@ -13,6 +14,8 @@ struct SourceListsView: View {
     @State private var missingSourceLists: Set<URL> = []
     @State private var showAddListFailAlert = false
     @State private var addListFailMessage = NSLocalizedString("SOURCE_LIST_ADD_FAIL_TEXT")
+    @State private var importing = false
+    @State private var pendingImportData: Data?
 
     private var activeSourceListURLs: [URL] {
         sourceListsURLs.filter {
@@ -50,12 +53,32 @@ struct SourceListsView: View {
         .navigationTitle(NSLocalizedString("SOURCE_LISTS"))
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showAlert()
+                Menu {
+                    Button {
+                        showAlert()
+                    } label: {
+                        Label(NSLocalizedString("SOURCE_LIST_ADD"), systemImage: "link")
+                    }
+                    Button {
+                        importing = true
+                    } label: {
+                        Label(NSLocalizedString("SOURCE_LIST_IMPORT"), systemImage: "square.and.arrow.down")
+                    }
                 } label: {
                     Image(systemName: "plus")
                 }
             }
+        }
+        .sheet(isPresented: $importing) {
+            DocumentPickerView(
+                allowedContentTypes: [.json, .data],
+                onDocumentsPicked: { urls in
+                    importing = false
+                    guard let url = urls.first else { return }
+                    importSourceList(from: url)
+                }
+            )
+            .ignoresSafeArea()
         }
         .alert(NSLocalizedString("SOURCE_LIST_ADD_FAIL"), isPresented: $showAddListFailAlert) {
             Button(NSLocalizedString("OK"), role: .cancel) {}
@@ -144,9 +167,56 @@ struct SourceListsView: View {
         }
     }
 
+    func importSourceList(from fileURL: URL) {
+        let secured = fileURL.startAccessingSecurityScopedResource()
+        defer {
+            if secured {
+                fileURL.stopAccessingSecurityScopedResource()
+            }
+        }
+        guard let data = try? Data(contentsOf: fileURL) else {
+            addListFailMessage = NSLocalizedString("SOURCE_LIST_IMPORT_FAIL_TEXT")
+            showAddListFailAlert = true
+            return
+        }
+        guard let parsed = SourceList.parse(data: data, url: SourceList.communityIndexURL) else {
+            addListFailMessage = NSLocalizedString("SOURCE_LIST_IMPORT_FAIL_TEXT")
+            showAddListFailAlert = true
+            return
+        }
+        if SourceList.isCommunityList(parsed) {
+            addLocalSourceList(data: data, url: SourceList.communityIndexURL)
+            return
+        }
+        pendingImportData = data
+        showAlert(forImportedList: true)
+    }
+
+    func addLocalSourceList(data: Data, url: URL) {
+        Task {
+            let result = await SourceManager.shared.addSourceListFromLocalData(data, url: url)
+            if result.succeeded {
+                await loadSourceLists()
+            } else {
+                addListFailMessage = result.failureMessage
+                showAddListFailAlert = true
+            }
+        }
+    }
+
     func addSourceList(url: String) {
         let url = url.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !url.isEmpty else { return }
+        if let pendingImportData {
+            self.pendingImportData = nil
+            guard let listURL = URL(string: url) else {
+                addListFailMessage = NSLocalizedString("SOURCE_LIST_ADD_FAIL_TEXT")
+                showAddListFailAlert = true
+                return
+            }
+            addLocalSourceList(data: pendingImportData, url: listURL)
+            return
+        }
         guard let url = URL(string: url) else {
             addListFailMessage = NSLocalizedString("SOURCE_LIST_ADD_FAIL_TEXT")
             showAddListFailAlert = true
@@ -186,13 +256,15 @@ struct SourceListsView: View {
         }
     }
 
-    func showAlert() {
+    func showAlert(forImportedList: Bool = false) {
         var alertTextField: UITextField?
         UIApplication.shared.appDelegate?.presentAlert(
             title: NSLocalizedString("SOURCE_LIST_ADD"),
-            message: NSLocalizedString("SOURCE_LIST_ADD_TEXT"),
+            message: NSLocalizedString(forImportedList ? "SOURCE_LIST_IMPORT_URL_TEXT" : "SOURCE_LIST_ADD_TEXT"),
             actions: [
-                UIAlertAction(title: NSLocalizedString("CANCEL"), style: .cancel),
+                UIAlertAction(title: NSLocalizedString("CANCEL"), style: .cancel) { _ in
+                    pendingImportData = nil
+                },
                 UIAlertAction(title: NSLocalizedString("OK"), style: .default) { _ in
                     guard let text = alertTextField?.text, !text.isEmpty else { return }
                     addSourceList(url: text)

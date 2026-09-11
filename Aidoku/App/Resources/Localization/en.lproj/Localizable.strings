@@ -536,6 +536,10 @@
 "SOURCE_LIST_ADD_TEXT" = "Enter the source list URL";
 "SOURCE_LIST_ADD_FAIL" = "Failed to Add Source List";
 "SOURCE_LIST_ADD_FAIL_TEXT" = "The provided source list URL is invalid or has already been added.";
+"SOURCE_LIST_IMPORT" = "Import JSON";
+"SOURCE_LIST_IMPORT_FAIL_TEXT" = "The selected file is not a valid source list.";
+"SOURCE_LIST_IMPORT_URL_TEXT" = "Enter the original source list URL. Relative source downloads are resolved against this URL.";
+"SOURCE_LIST_TLS_HINT" = "HTTPS certificate verification cannot be disabled. This iOS Simulator does not use Mac Keychain trust. If a proxy decrypts HTTPS, install its CA in the Simulator and enable full trust under Settings > General > About > Certificate Trust Settings, or turn off HTTPS decryption for the Simulator.";
 "UNAVAILABLE_SOURCE_LISTS" = "Unavailable Source Lists";
 "UNAVAILABLE_SOURCE_LISTS_TEXT" = "An error occured while fetching the above source lists.";
 "COPY_URL" = "Copy URL";

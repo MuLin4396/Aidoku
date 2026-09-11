@@ -5,6 +5,7 @@
 //  Created by Skitty on 6/11/25.
 //
 
+import CryptoKit
 import Foundation
 
 struct SourceList: Equatable {
@@ -86,6 +87,12 @@ extension SourceList {
         return result
     }
 
+    static let communityIndexURL = URL(string: "https://aidoku-community.github.io/sources/index.min.json")!
+
+    static func isCommunityList(_ list: SourceList) -> Bool {
+        list.name.caseInsensitiveCompare("Aidoku Community Sources") == .orderedSame
+    }
+
     /// Mirrors for `https://org.github.io/repo/path`.
     /// `cdn.jsdelivr.net` is omitted: it is commonly DNS-hijacked in some networks
     /// and fails TLS with an invalid certificate.
@@ -128,5 +135,71 @@ enum SourceListAddResult {
             case let .failed(detail):
                 "\(NSLocalizedString("SOURCE_LIST_ADD_FAIL_TEXT"))\n\n\(detail)"
         }
+    }
+}
+
+enum SourceListCache {
+    private static var root: URL {
+        let url = FileManager.default.applicationSupportDirectory
+            .appendingPathComponent("SourceLists", isDirectory: true)
+            .appendingPathComponent("Cache", isDirectory: true)
+        url.createDirectory()
+        return url
+    }
+
+    private static func directory(for url: URL) -> URL {
+        let digest = SHA256.hash(data: Data(url.absoluteString.utf8))
+        let hex = digest.map { String(format: "%02x", $0) }.joined()
+        return root.appendingPathComponent(hex, isDirectory: true)
+    }
+
+    static func store(data: Data, listURL: URL, resolveBase: URL) {
+        let dir = directory(for: listURL)
+        dir.createDirectory()
+        try? data.write(to: dir.appendingPathComponent("index.json"), options: .atomic)
+        try? Data(resolveBase.absoluteString.utf8)
+            .write(to: dir.appendingPathComponent("base-url.txt"), options: .atomic)
+    }
+
+    static func load(listURL: URL) -> (data: Data, resolveBase: URL)? {
+        let dir = directory(for: listURL)
+        guard
+            let data = try? Data(contentsOf: dir.appendingPathComponent("index.json")),
+            !data.isEmpty,
+            let baseString = try? String(
+                contentsOf: dir.appendingPathComponent("base-url.txt"),
+                encoding: .utf8
+            ),
+            let resolveBase = URL(string: baseString.trimmingCharacters(in: .whitespacesAndNewlines))
+        else {
+            return nil
+        }
+        return (data, resolveBase)
+    }
+}
+
+extension Error {
+    var isTLSTrustFailure: Bool {
+        if let urlError = self as? URLError {
+            switch urlError.code {
+                case .secureConnectionFailed,
+                     .serverCertificateUntrusted,
+                     .serverCertificateHasUnknownRoot,
+                     .serverCertificateNotYetValid,
+                     .clientCertificateRejected,
+                     .clientCertificateRequired:
+                    return true
+                default:
+                    break
+            }
+        }
+        let nsError = self as NSError
+        if nsError.domain == NSURLErrorDomain, (-1206...(-1200)).contains(nsError.code) {
+            return true
+        }
+        if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError, underlying !== nsError {
+            return underlying.isTLSTrustFailure
+        }
+        return false
     }
 }

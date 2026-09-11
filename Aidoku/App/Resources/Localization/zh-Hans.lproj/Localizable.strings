@@ -179,6 +179,10 @@
 "SOURCE_LIST_ADD_TEXT" = "输入来源列表网址";
 "SOURCE_LIST_ADD_FAIL" = "添加来源列表失败";
 "SOURCE_LIST_ADD_FAIL_TEXT" = "提供来源列表网址无效或已被添加。";
+"SOURCE_LIST_IMPORT" = "导入 JSON";
+"SOURCE_LIST_IMPORT_FAIL_TEXT" = "所选文件不是有效的来源列表。";
+"SOURCE_LIST_IMPORT_URL_TEXT" = "请输入该 JSON 对应的原始来源列表网址。相对路径的来源安装包会按此地址解析。";
+"SOURCE_LIST_TLS_HINT" = "不能关闭 HTTPS 证书校验。iOS 模拟器不会使用 Mac 钥匙串里的信任设置。如果代理在解密 HTTPS，请把代理 CA 安装进模拟器，并在“设置 > 通用 > 关于本机 > 证书信任设置”中打开完全信任；或者对模拟器关闭 HTTPS 解密。";
 "LOCK_HISTORY_TAB" = "锁定历史标签";
 "DOWNSAMPLE_IMAGES" = "降低图片品质";
 "BACKUPS" = "备份";

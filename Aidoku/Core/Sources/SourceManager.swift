@@ -233,19 +233,24 @@ extension SourceManager {
     }
 
     private enum SourceListFetchResult {
-        case loaded(SourceList)
-        case failed(String)
+        case loaded(SourceList, data: Data)
+        case failed(String, isTLS: Bool)
     }
 
     private func loadSourceList(url: URL) async -> SourceList? {
         lastSourceListLoadError = nil
         var originalError: String?
         var mirrorFailures: [String] = []
+        var sawTLSFailure = false
         for candidate in SourceList.fetchCandidates(for: url) {
             switch await fetchAndParseSourceList(from: candidate) {
-                case let .loaded(sourceList):
+                case let .loaded(sourceList, data):
+                    SourceListCache.store(data: data, listURL: url, resolveBase: candidate)
                     return sourceList
-                case let .failed(error):
+                case let .failed(error, isTLS):
+                    if isTLS {
+                        sawTLSFailure = true
+                    }
                     LogManager.logger.error("Source list candidate failed (\(candidate.absoluteString)): \(error)")
                     if candidate.host == url.host {
                         originalError = originalError ?? error
@@ -255,6 +260,11 @@ extension SourceManager {
                     }
             }
         }
+        if let cached = SourceListCache.load(listURL: url),
+           let sourceList = SourceList.parse(data: cached.data, url: cached.resolveBase) {
+            LogManager.logger.error("Using cached source list for \(url.absoluteString)")
+            return sourceList
+        }
         var parts: [String] = []
         if let originalError {
             parts.append("\(url.absoluteString)\n\(originalError)")
@@ -262,32 +272,41 @@ extension SourceManager {
         if !mirrorFailures.isEmpty {
             parts.append(mirrorFailures.joined(separator: "\n"))
         }
+        if sawTLSFailure {
+            parts.append(NSLocalizedString("SOURCE_LIST_TLS_HINT"))
+        }
         lastSourceListLoadError = parts.isEmpty ? "Unable to load source list" : parts.joined(separator: "\n\n")
         LogManager.logger.error("Failed to load source list from \(url.absoluteString): \(lastSourceListLoadError ?? "")")
         return nil
     }
 
     private func fetchAndParseSourceList(from url: URL) async -> SourceListFetchResult {
-        var request = URLRequest(url: url, timeoutInterval: 30)
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.assumesHTTP3Capable = false
-        if let userAgent = await UserAgentProvider.shared.getUserAgent() {
-            request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
-        }
         do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            if let httpResponse = response as? HTTPURLResponse, !(200..<300).contains(httpResponse.statusCode) {
-                return .failed("HTTP \(httpResponse.statusCode)")
+            let data: Data
+            if url.isFileURL {
+                data = try Data(contentsOf: url)
+            } else {
+                var request = URLRequest(url: url, timeoutInterval: 30)
+                request.cachePolicy = .reloadIgnoringLocalCacheData
+                request.assumesHTTP3Capable = false
+                if let userAgent = await UserAgentProvider.shared.getUserAgent() {
+                    request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+                }
+                let (body, response) = try await URLSession.shared.data(for: request)
+                if let httpResponse = response as? HTTPURLResponse, !(200..<300).contains(httpResponse.statusCode) {
+                    return .failed("HTTP \(httpResponse.statusCode)", isTLS: false)
+                }
+                data = body
             }
             if let sourceList = SourceList.parse(data: data, url: url) {
-                return .loaded(sourceList)
+                return .loaded(sourceList, data: data)
             }
             let prefix = String(data: data.prefix(160), encoding: .utf8)?
                 .replacingOccurrences(of: "\n", with: " ")
                 ?? "\(data.count) bytes"
-            return .failed("Invalid source list JSON (\(prefix))")
+            return .failed("Invalid source list JSON (\(prefix))", isTLS: false)
         } catch {
-            return .failed(error.localizedDescription)
+            return .failed(error.localizedDescription, isTLS: error.isTLSTrustFailure)
         }
     }
 }
@@ -882,14 +901,7 @@ extension SourceManager {
             }
             let result = await loadSourceList(url: url)
             if let result {
-                sourceListStates[url] = .loaded(result)
-                for source in result.sources {
-                    if let sourceLanguages = source.languages {
-                        sourceListLanguageCodes.formUnion(sourceLanguages)
-                    } else if let sourceLang = source.lang {
-                        sourceListLanguageCodes.insert(sourceLang)
-                    }
-                }
+                applyLoadedSourceList(result, url: url)
                 NotificationCenter.default.post(name: .updateSourceLists, object: nil)
                 return .success
             }
@@ -905,14 +917,7 @@ extension SourceManager {
         AppSettings.browse.sourceLists.set(sourceListURLs)
 
         if let result {
-            sourceListStates[url] = .loaded(result)
-            for source in result.sources {
-                if let sourceLanguages = source.languages {
-                    sourceListLanguageCodes.formUnion(sourceLanguages)
-                } else if let sourceLang = source.lang {
-                    sourceListLanguageCodes.insert(sourceLang)
-                }
-            }
+            applyLoadedSourceList(result, url: url)
         } else {
             sourceListStates[url] = .unavailable
         }
@@ -920,6 +925,37 @@ extension SourceManager {
         NotificationCenter.default.post(name: .updateSourceLists, object: nil)
 
         return .success
+    }
+
+    func addSourceListFromLocalData(_ data: Data, url: URL) async -> SourceListAddResult {
+        guard let sourceList = SourceList.parse(data: data, url: url) else {
+            return .failed("Invalid source list JSON")
+        }
+
+        SourceListCache.store(data: data, listURL: url, resolveBase: url)
+
+        if sourceListURLs.contains(url), case .loaded = sourceListStates[url] {
+            applyLoadedSourceList(sourceList, url: url)
+            NotificationCenter.default.post(name: .updateSourceLists, object: nil)
+            return .success
+        }
+
+        sourceListURLs.insert(url)
+        AppSettings.browse.sourceLists.set(sourceListURLs)
+        applyLoadedSourceList(sourceList, url: url)
+        NotificationCenter.default.post(name: .updateSourceLists, object: nil)
+        return .success
+    }
+
+    private func applyLoadedSourceList(_ sourceList: SourceList, url: URL) {
+        sourceListStates[url] = .loaded(sourceList)
+        for source in sourceList.sources {
+            if let sourceLanguages = source.languages {
+                sourceListLanguageCodes.formUnion(sourceLanguages)
+            } else if let sourceLang = source.lang {
+                sourceListLanguageCodes.insert(sourceLang)
+            }
+        }
     }
 
     func removeSourceList(url: URL) async {
