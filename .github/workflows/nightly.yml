@@ -4,10 +4,10 @@ on:
   push:
   workflow_dispatch:
 
-# xcode-27-arm64/20260928.0222 is macOS 27.0. Package with the iOS 27.1 SDK
-# (24A94401), which ships in Xcode 27.1 rather than the default Xcode 27.0 or 27.2 beta.
+# xcode-27-arm64/20260928.0222 is macOS 27.0. Xcode 27.1 (27A9269) ships the
+# iOS 27.1 SDK build 24A94403 for both device and simulator.
 env:
-  BUILD_ENV_LABEL: Xcode 27.1 / iOS 27.1 (24A94401) / macOS 27.0
+  BUILD_ENV_LABEL: Xcode 27.1 / iOS 27.1 (24A94403) / macOS 27.0
 
 concurrency:
   group: nightly-${{ github.workflow }}-${{ github.ref }}
@@ -91,8 +91,8 @@ jobs:
               exit 1
               ;;
           esac
-          if [ "$sdk_version" != "27.1" ] || [ "$sdk_build" != "24A94401" ]; then
-            echo "Expected iOS 27.1 (24A94401), got ${sdk_version:-unknown} (${sdk_build:-unknown})" >&2
+          if [ "$sdk_version" != "27.1" ] || [ "$sdk_build" != "24A94403" ]; then
+            echo "Expected iOS 27.1 (24A94403), got ${sdk_version:-unknown} (${sdk_build:-unknown})" >&2
             exit 1
           fi
 
