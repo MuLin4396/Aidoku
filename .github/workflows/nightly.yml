@@ -16,7 +16,7 @@ jobs:
       - name: Set up Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: "27.1"
+          xcode-version: "27"
 
       - name: Install Xcode platforms
         run: |
