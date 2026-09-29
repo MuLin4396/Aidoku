@@ -147,6 +147,10 @@ jobs:
       sim_size: ${{ steps.release.outputs.sim_size }}
       sim_download_url: ${{ steps.release.outputs.sim_download_url }}
     steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+
       - name: Download IPAs
         uses: actions/download-artifact@v4
         with:
@@ -158,18 +162,18 @@ jobs:
         id: release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           TAG_NAME: nightly-${{ needs.meta.outputs.date }}-${{ needs.meta.outputs.sha_short }}
           COMMIT_MSG: ${{ needs.meta.outputs.commit_msg }}
           BUILD_DATE: ${{ needs.meta.outputs.date }}
           SHA_SHORT: ${{ needs.meta.outputs.sha_short }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          dev=(dist/Aidoku_nightly_device_*.ipa)
-          sim=(dist/Aidoku_nightly_simulator_*.ipa)
+          mapfile -t dev < <(find dist -type f -name 'Aidoku_nightly_device_*.ipa' | sort)
+          mapfile -t sim < <(find dist -type f -name 'Aidoku_nightly_simulator_*.ipa' | sort)
           if [ "${#dev[@]}" -ne 1 ] || [ "${#sim[@]}" -ne 1 ]; then
             echo "Expected exactly one device IPA and one simulator IPA" >&2
-            ls -la dist >&2
+            find dist -print >&2
             exit 1
           fi
 
@@ -182,6 +186,7 @@ jobs:
           gh release create "$TAG_NAME" \
             "${dev[0]}" \
             "${sim[0]}" \
+            --target "$GITHUB_SHA" \
             --title "Nightly Build - ${BUILD_DATE} (${SHA_SHORT})" \
             --notes "$NOTES" \
             --prerelease
